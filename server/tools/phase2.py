@@ -69,10 +69,16 @@ def _parse_time_to_iso(time_str: str | None) -> str:
         except Exception:
             pass
 
+    # Clean leading prefixes like "at ", "today at ", "today "
+    s_clean = s.strip()
+    for prefix in ("today at ", "today ", "at "):
+        if s_clean.lower().startswith(prefix):
+            s_clean = s_clean[len(prefix):].strip()
+
     # Parse 12-hour or 24-hour time like '8:10', '08:10', '8:10 AM', '14:00'
-    for fmt in ("%I:%M %p", "%I:%M%p", "%H:%M", "%H:%M:%S"):
+    for fmt in ("%I:%M %p", "%I:%M%p", "%H:%M", "%H:%M:%S", "%I:%M"):
         try:
-            parsed = datetime.strptime(s.upper(), fmt)
+            parsed = datetime.strptime(s_clean.upper(), fmt)
             combined = now.replace(
                 hour=parsed.hour,
                 minute=parsed.minute,
@@ -116,6 +122,7 @@ async def log_dose(
         }
 
     taken_at = _parse_time_to_iso(time)
+    print(f"[log_dose] Logged dose for '{med['name']}' at taken_at='{taken_at}' (Asia/Kolkata IST)")
     time_display = _format_time_display(taken_at)
 
     log_id = execute(
@@ -164,7 +171,22 @@ async def whats_due(
 
     now = datetime.now(IST)
     today_str = now.strftime("%Y-%m-%d")
-    target_date = date.strip() if date and date.strip() else today_str
+
+    target_date = today_str
+    if date and date.strip():
+        d = date.strip().lower()
+        if d in ("today", "now", "none", "null", "") or d == today_str:
+            target_date = today_str
+        elif "today" in d:
+            target_date = today_str
+        else:
+            try:
+                parsed_d = datetime.fromisoformat(d.split("T")[0])
+                target_date = parsed_d.strftime("%Y-%m-%d")
+            except Exception:
+                target_date = today_str
+
+    print(f"[whats_due] Querying date='{target_date}' (Today IST: '{today_str}', LIKE '{target_date}%')")
 
     meds = fetch_all("SELECT * FROM medications WHERE person_id = ?", (patient_id,))
     logs = fetch_all(

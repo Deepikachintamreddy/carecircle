@@ -111,13 +111,13 @@ The seed script creates a realistic multi-generational family:
 ## Quickstart & Installation
 
 ### Prerequisites
-- Python 3.11+
+- Python 3.13
 - Git
 
 ### 1. Setup Virtual Environment & Dependencies
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/carecircle.git
+git clone https://github.com/NanduKondreddy/CareCircle.git
 cd carecircle
 
 # Create and activate virtual environment

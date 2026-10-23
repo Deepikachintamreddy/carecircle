@@ -131,10 +131,10 @@ def seed() -> None:
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Days where doses are missed (relative to today, 0 = today)
-    bp_morning_misses = {3, 7, 11}      # missed morning BP on these days
+    bp_morning_misses = {3, 7, 11, 0}   # missed morning BP (0 = today, so Amma logs it in Step 1)
     bp_evening_misses = {5}             # missed evening BP
     sugar_misses = {2, 7, 10, 0}        # missed sugar tablet (day 0 = today, 2 PM hasn't come yet for demo)
-    vitamin_misses = {4, 9}             # missed vitamin
+    vitamin_misses = {4, 9, 0}          # missed vitamin (day 0 = today pending)
 
     for days_ago in range(13, -1, -1):
         day = today - timedelta(days=days_ago)

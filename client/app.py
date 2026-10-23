@@ -30,6 +30,8 @@ from dotenv import load_dotenv
 
 load_dotenv(PROJECT_ROOT / ".env")
 
+from server.db import IST
+
 import httpx
 import httpx2
 import uvicorn
@@ -435,11 +437,17 @@ class OpenAICompatibleProvider(LLMProvider):
             res["provider_used"] = "CareCircle Smart Voice Agent (Local Fallback Engine)"
             return res
 
+        now_ist = datetime.now(IST)
+        today_iso = now_ist.strftime("%Y-%m-%d")
+        time_iso = now_ist.strftime("%H:%M")
+        day_name = now_ist.strftime("%A")
+
         system_message = (
             "You are CareCircle, an Alexa+ family care coordinator looking after an aging parent named Amma. "
             f"The current speaker is {speaker_name}. "
+            f"Today's date is {today_iso} ({day_name}) and current time is {time_iso} IST (Asia/Kolkata).\n"
             "You have access to 10 tools. Always invoke the appropriate tool to answer user questions.\n"
-            "- For questions about whether medicines were taken today, what is due today, or today's schedule (e.g. 'Did Amma take her medicines today?', 'What's due today?'): call `whats_due()`. Never call care_summary for questions about today.\n"
+            "- For questions about whether medicines were taken today, what is due today, or today's schedule (e.g. 'Did Amma take her medicines today?', 'What's due today?'): call `whats_due()`. Do NOT pass a date argument for questions about today. Never call care_summary for questions about today.\n"
             "- For questions about past missed medicines over the week/days or overall adherence: call `care_summary(days=7)`.\n"
             "- For questions about doctor appointments, upcoming visits, or doctor briefs: call `prepare_visit_brief()`.\n"
             "- For questions asking how many pills or tablets remain in stock (e.g. 'How many sugar tablets do I have left?'): call `check_supply()`.\n"
@@ -449,7 +457,7 @@ class OpenAICompatibleProvider(LLMProvider):
             "CRITICAL RESPONSE INSTRUCTIONS:\n"
             "Your reply must be at most 2 sentences. Answer ONLY what was asked using facts from the tool results. "
             "Only mention low stock when days left is below 3.\n"
-            "- For today's doses / what's due questions: Sentence 1 states what was taken today and what is overdue or pending today. Never use multi-day missed counts for today.\n"
+            "- For today's doses / what's due questions: Sentence 1 states what was taken today and what is overdue or pending today. Never use multi-day missed counts for today. If a medicine was taken today, say it was taken.\n"
             "- For multi-day missed medicines/adherence questions: Sentence 1 states the total number of missed doses (e.g. 'Amma missed <N> doses this week...') and which medicines were missed.\n"
             "- For doctor appointment questions: Sentence 1 states the doctor, specialty, day/date, and time.\n"
             "- For pill supply questions: Sentence 1 states the count of pills or tablets left for the requested medicine.\n"
@@ -542,6 +550,14 @@ class OpenAICompatibleProvider(LLMProvider):
                     except Exception:
                         tool_args = {}
 
+                    # Ensure queries about 'today' always target today's date in IST
+                    if tool_name == "whats_due" and "today" in utterance.lower():
+                        tool_args.pop("date", None)
+
+                    # Enforce safety gate: initial requests must never bypass confirmation
+                    if tool_name in ("request_refill", "forget") and not confirmation_state:
+                        tool_args["confirm"] = False
+
                     # Execute chosen tool on MCP Server over reused Streamable HTTP session
                     t_mcp_start = time.perf_counter()
                     tool_data, card_html = await call_mcp_tool(speaker_token, tool_name, tool_args)
@@ -558,7 +574,7 @@ class OpenAICompatibleProvider(LLMProvider):
                                     "CRITICAL RULES:\n"
                                     "1. Reply in at most 2 sentences.\n"
                                     "2. Answer ONLY what was asked using the tool result structured data:\n"
-                                    "   - For today's doses / what's due today (from whats_due): Sentence 1 lists what was taken today (e.g. 'She took <med> at <time>') and what is overdue or pending today (e.g. '<med> is overdue'). Never use multi-day or 7-day missed counts when answering about today.\n"
+                                    "   - For today's doses / what's due today (from whats_due): Sentence 1 lists what was taken today (e.g. 'She took <med> at <time>') and what is overdue or pending today (e.g. '<med> is overdue'). Do not say no medicines were taken if taken doses exist. Never use multi-day or 7-day missed counts when answering about today.\n"
                                     "   - For multi-day missed medicines / adherence (from care_summary): Sentence 1 states the total number of missed doses (e.g. 'Amma missed <N> doses this week...') and which medicines were missed.\n"
                                     "   - For doctor appointments: Sentence 1 states the doctor name, specialty, day/date, and time.\n"
                                     "   - For supply/pills left: Sentence 1 states the count of pills or tablets left.\n"
@@ -613,8 +629,13 @@ class OpenAICompatibleProvider(LLMProvider):
                             print(f"[OpenAI-Compatible LLM] Synthesis reply ({active_model}): '{llm_reply}'")
                             if llm_reply:
                                 spoken = llm_reply
-                        else:
-                            print(f"[OpenAI-Compatible LLM] Synthesis turn HTTP {r2.status_code if r2 else 'None'}: {r2.text[:300] if r2 else ''}")
+
+                        # Guardrail: If whats_due reported taken doses today, verify synthesis does not falsely claim nothing was taken
+                        if tool_name == "whats_due":
+                            taken_items = tool_data.get("data", {}).get("taken", [])
+                            if taken_items and any(neg in spoken.lower() for neg in ["not taken any", "hasn't taken any", "haven't taken any", "no medicines have been"]):
+                                print(f"[OpenAI-Compatible LLM] Correcting false-negative synthesis reply with tool spoken response.")
+                                spoken = tool_data.get("spoken_response") or spoken
                     except Exception as synth_err:
                         print(f"[OpenAI-Compatible LLM] Synthesis turn exception: {synth_err}")
 

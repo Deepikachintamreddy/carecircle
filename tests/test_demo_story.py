@@ -105,6 +105,11 @@ async def run_demo_story():
         print(f"  Alexa+ Spoken Reply: \"{data['spoken_reply']}\"")
         assert "BP tablet" in data["spoken_reply"] or "Amlodipine" in data["spoken_reply"]
         assert "8:10" in data["spoken_reply"]
+
+        # Verify and print the taken_at value written to SQLite in Step 1
+        latest_log = fetch_one("SELECT * FROM dose_logs ORDER BY id DESC LIMIT 1")
+        step1_taken_at = latest_log["taken_at"] if latest_log else "None"
+        print(f"  [DB Verification] Step 1 written taken_at: '{step1_taken_at}' (Asia/Kolkata IST)")
         print("  [PASS] Dose recorded in shared private family record.")
 
         # ── Step 2: Ravi checks today's status ─────────────────────────
@@ -123,6 +128,8 @@ async def run_demo_story():
         now_dt = datetime.now(IST)
         today_str = now_dt.strftime("%Y-%m-%d")
         now_hm = now_dt.strftime("%H:%M")
+        print(f"  [DB Verification] whats_due today query range: '{today_str}%' (Now IST: {now_hm})")
+
         patient = fetch_one("SELECT id FROM people WHERE role = 'patient' LIMIT 1")
         meds = fetch_all("SELECT * FROM medications WHERE person_id = ?", (patient["id"],))
         today_logs = fetch_all(
@@ -146,14 +153,26 @@ async def run_demo_story():
                         expected_pending_names.append(m["name"])
 
         reply_lower = data["spoken_reply"].lower()
-        # 1. Assert today's taken dose is listed
+
+        # Specific assertions requested:
+        # 1. Assert BP tablet is in the step 2 reply as taken today
+        assert ("bp tablet" in reply_lower or "amlodipine" in reply_lower), (
+            f"Step 2 reply must list BP tablet/Amlodipine taken today: {data['spoken_reply']}"
+        )
+
+        # 2. Assert reply does not say "not taken any"
+        assert "not taken any" not in reply_lower and "hasn't taken any" not in reply_lower, (
+            f"Step 2 reply must not say 'not taken any': {data['spoken_reply']}"
+        )
+
+        # 3. Assert today's taken doses are listed
         for med in expected_taken_names:
             stem = med.split()[0].lower()
             assert stem in reply_lower or "bp tablet" in reply_lower, (
                 f"Step 2 reply should list taken med '{med}': {data['spoken_reply']}"
             )
 
-        # 2. Assert overdue or pending doses are listed
+        # 4. Assert overdue or pending doses are listed
         if expected_overdue_names:
             for med in expected_overdue_names:
                 stem = med.split()[0].lower()
@@ -166,7 +185,7 @@ async def run_demo_story():
                 f"Step 2 reply should indicate upcoming/pending status: {data['spoken_reply']}"
             )
 
-        # 3. Assert it does NOT use 7-day missed count
+        # 5. Assert it does NOT use 7-day missed count
         assert "this week" not in reply_lower and "last 7 days" not in reply_lower and "missed 4 doses" not in reply_lower, (
             f"Step 2 reply must not use 7-day missed count: {data['spoken_reply']}"
         )
