@@ -34,7 +34,7 @@ flowchart TD
     subgraph Client ["Simulated Alexa+ Voice Client (Port 8001)"]
         UI["Web Interface (Browser STT & Speech Synthesis)"]
         Host["MCP Apps Host (Sandboxed iframe)"]
-        Agent["Alexa+ Voice Agent (Bedrock / Local)"]
+        Agent["Voice Agent (Gemini via OpenAI-compatible API; keyword fallback offline)"]
     end
 
     subgraph Server ["CareCircle MCP Server (Port 8000)"]
@@ -88,23 +88,23 @@ The system supports the following real-world scenario end to end:
 | **1** | **Amma** | Patient (Morning) | *"I took my BP tablet."* | *"I've logged your Amlodipine (BP tablet) dose at 8:10 AM."* — Dose logged, pill count decremented. |
 | **2** | **Ravi** | Caregiver (Evening) | *"Did Amma take her medicines today?"* | *"She took the BP tablet at 8:10 AM and Vitamin D3 at 9:00 AM. The 2:00 PM Metformin (sugar tablet) is not logged yet."* |
 | **3** | **Priya** | Caregiver | *"Prepare me for Amma's cardiology visit on Monday."* | Synthesizes 14 days of doses, missed doses, and symptoms into a spoken summary and renders the **MCP Apps Doctor Brief Card** in the iframe. |
-| **4** | **Ravi** | Caregiver | *"Her BP tablets are running low."* | *"Amlodipine (BP tablet) has 2 days of supply left (5 pills). Should I place a mock pharmacy refill order for 60 pills?"* — **Requires explicit confirmation** before placing order `#MOCK-1`. |
-| **5** | **Ravi** | Caregiver | *"Forget the note about her dizziness."* | Prompts for confirmation; upon confirmation, permanently erases note from database and writes an immutable entry to `privacy_log`. |
+| **4** | **Ravi** | Caregiver | *"Her BP tablets are running low."* | *"Amlodipine (BP tablet) is running low. Should I place a mock pharmacy refill order?"* — **Requires explicit confirmation** before placing order `#MOCK-1`. |
+| **5** | **Ravi** | Caregiver | *"Forget the note about her dizziness."* | Prompts for confirmation; upon confirmation, permanently erases note from database and writes an entry in `privacy_log`. |
 
 ---
 
-## Demo Family & Bearer Tokens
+## Demo Family & Roles
 
 The seed script creates a realistic multi-generational family:
 
-| Name | Role | Access Permissions | Demo Bearer Token |
-|:---|:---|:---|:---|
-| **Amma** | `patient` | Read/Write (log doses, view schedule) | `54fe2f2b04205ed2991c4c5c029f43fc682754c4f6578b9d82fb4b8593915de9` |
-| **Ravi** | `caregiver` | Read/Write (full care coordination & refills) | `56b7555775f4ddaa354227ee25696e21c7fcd7094ed262255da83eb2f216482a` |
-| **Priya** | `caregiver` | Read/Write (doctor briefs, appointment notes) | `47afb499828b92e038a6d1aa077d1b1a750e99e1eb333ae0e7b1b38e5883ec7d` |
-| **Dr. Rao's Clinic** | `viewer` | Read-Only (care summaries & doctor briefs) | `83c040fc3e6d6afcbc0fbb7623b7f620451e7d371d3b8be36a1518ad3d994e2d` |
+| Name | Role | Access Permissions |
+|:---|:---|:---|
+| **Amma** | `patient` | Read/Write (log doses, view schedule) |
+| **Ravi** | `caregiver` | Read/Write (full care coordination & refills) |
+| **Priya** | `caregiver` | Read/Write (doctor briefs, appointment notes) |
+| **Dr. Rao's Clinic** | `viewer` | Read-Only (care summaries & doctor briefs) |
 
-*(Note: Run `python scripts/seed.py` at any time to regenerate tokens stored in `scripts/.tokens.json`)*.
+*(Note: Run `python scripts/seed.py` at any time to generate fresh tokens stored in `scripts/.tokens.json`)*.
 
 ---
 
@@ -131,19 +131,29 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Populate Demo Data
+### 2. Configure the LLM
+Copy `.env.example` to `.env` and set your credentials:
+```bash
+cp .env.example .env
+```
+In `.env`, configure:
+- `LLM_API_KEY`: Your Gemini or OpenAI-compatible API key.
+- `LLM_BASE_URL`: `https://generativelanguage.googleapis.com/v1beta/openai` (or compatible endpoint).
+- `LLM_MODEL`: `gemini-3.1-flash-lite` (or chosen model).
+
+### 3. Populate Demo Data
 ```bash
 python scripts/seed.py
 ```
 This populates 14 days of realistic dose logs, 3 medications (BP tablet, sugar tablet, vitamin D), symptom notes (including morning dizziness), and an upcoming cardiology appointment.
 
-### 3. Start the CareCircle MCP Server
+### 4. Start the CareCircle MCP Server
 ```bash
 python server/main.py
 ```
 *Server starts on `http://127.0.0.1:8000/mcp`.*
 
-### 4. Start the Simulated Alexa+ Voice Client
+### 5. Start the Simulated Alexa+ Voice Client
 In a second terminal:
 ```bash
 python client/app.py
@@ -155,7 +165,7 @@ python client/app.py
 ## Testing & Verification
 
 ### Automated Verification Suites
-CareCircle includes 6 automated verification suites testing every layer of the MCP specification:
+CareCircle includes 7 automated verification suites testing every layer of the MCP specification:
 
 ```bash
 # Check 2: MCP Spec 2025-11-25 Protocol Version Handshake
@@ -260,12 +270,3 @@ carecircle/
 
 > [!NOTE]
 > **MCP Apps Web Host Compliance**: Our web client does not implement the separate-origin sandbox proxy that the spec requires for web hosts. Use MCPJam or Claude Desktop for a fully compliant host.
-
----
-
-## Screenshots Placeholder
-
-| Simulated Alexa+ Voice Client | MCP Apps Doctor Brief Card |
-|:---:|:---:|
-| ![Alexa Voice Client](media/voice_client_preview.png) | ![Doctor Brief Card](media/mcp_app_card_preview.png) |
-*(Screenshots captured from live client running at http://127.0.0.1:8001)*.
