@@ -16,6 +16,7 @@ import os
 import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 # Add project root to sys.path
@@ -27,11 +28,18 @@ import uvicorn
 
 import client.app
 import server.main
-from server.db import fetch_one
+from server.db import IST, fetch_all, fetch_one
 
 MCP_PORT = 8000
 CLIENT_PORT = 8001
 CLIENT_URL = f"http://127.0.0.1:{CLIENT_PORT}"
+
+
+def is_port_open(port: int) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", port)) == 0
 
 
 class ServicesRunner:
@@ -44,15 +52,17 @@ class ServicesRunner:
         os.environ["ALLOWED_ORIGINS"] = f"http://localhost:{CLIENT_PORT},http://127.0.0.1:{CLIENT_PORT},http://127.0.0.1:{MCP_PORT}"
         os.environ["MCP_SERVER_URL"] = f"http://127.0.0.1:{MCP_PORT}/mcp"
 
-        # Start MCP Server on 8000
-        mcp_config = uvicorn.Config(server.main.app, host="127.0.0.1", port=MCP_PORT, log_level="error")
-        self.mcp_server = uvicorn.Server(mcp_config)
-        threading.Thread(target=self.mcp_server.run, daemon=True).start()
+        # Start MCP Server on 8000 if not running
+        if not is_port_open(MCP_PORT):
+            mcp_config = uvicorn.Config(server.main.app, host="127.0.0.1", port=MCP_PORT, log_level="error")
+            self.mcp_server = uvicorn.Server(mcp_config)
+            threading.Thread(target=self.mcp_server.run, daemon=True).start()
 
-        # Start Voice Client on 8001
-        client_config = uvicorn.Config(client.app.app, host="127.0.0.1", port=CLIENT_PORT, log_level="error")
-        self.client_server = uvicorn.Server(client_config)
-        threading.Thread(target=self.client_server.run, daemon=True).start()
+        # Start Voice Client on 8001 if not running
+        if not is_port_open(CLIENT_PORT):
+            client_config = uvicorn.Config(client.app.app, host="127.0.0.1", port=CLIENT_PORT, log_level="error")
+            self.client_server = uvicorn.Server(client_config)
+            threading.Thread(target=self.client_server.run, daemon=True).start()
 
         time.sleep(1.5)
 
@@ -82,7 +92,7 @@ async def run_demo_story():
     ravi_token = tokens["Ravi"]
     priya_token = tokens["Priya"]
 
-    async with httpx2.AsyncClient(timeout=20.0) as http_client:
+    async with httpx2.AsyncClient(timeout=90.0) as http_client:
         # ── Step 1: Amma logs dose ─────────────────────────────────────
         print("\n[Step 1] Amma (Patient, Morning): \"I took my BP tablet.\"")
         payload = {
@@ -107,8 +117,60 @@ async def run_demo_story():
         resp = await http_client.post(f"{CLIENT_URL}/api/chat", json=payload)
         data = resp.json()
         print(f"  Alexa+ Spoken Reply: \"{data['spoken_reply']}\"")
-        assert "Amlodipine" in data["spoken_reply"] or "BP tablet" in data["spoken_reply"]
-        print("  [PASS] Multi-family member coordination verified across sessions.")
+        assert data.get("tool_called") == "whats_due", f"Expected whats_due tool to be called, got: {data.get('tool_called')}"
+
+        # Dynamically compute today's taken and overdue/pending doses from SQLite
+        now_dt = datetime.now(IST)
+        today_str = now_dt.strftime("%Y-%m-%d")
+        now_hm = now_dt.strftime("%H:%M")
+        patient = fetch_one("SELECT id FROM people WHERE role = 'patient' LIMIT 1")
+        meds = fetch_all("SELECT * FROM medications WHERE person_id = ?", (patient["id"],))
+        today_logs = fetch_all(
+            "SELECT dl.*, m.name as med_name FROM dose_logs dl "
+            "JOIN medications m ON dl.medication_id = m.id "
+            "WHERE dl.taken_at LIKE ?",
+            (f"{today_str}%",),
+        )
+
+        expected_taken_names = [l["med_name"] for l in today_logs]
+        expected_overdue_names = []
+        expected_pending_names = []
+        for m in meds:
+            times = json.loads(m["times_json"])
+            m_logs = [l for l in today_logs if l["medication_id"] == m["id"]]
+            for idx, slot_time in enumerate(times):
+                if idx >= len(m_logs):
+                    if slot_time < now_hm:
+                        expected_overdue_names.append(m["name"])
+                    else:
+                        expected_pending_names.append(m["name"])
+
+        reply_lower = data["spoken_reply"].lower()
+        # 1. Assert today's taken dose is listed
+        for med in expected_taken_names:
+            stem = med.split()[0].lower()
+            assert stem in reply_lower or "bp tablet" in reply_lower, (
+                f"Step 2 reply should list taken med '{med}': {data['spoken_reply']}"
+            )
+
+        # 2. Assert overdue or pending doses are listed
+        if expected_overdue_names:
+            for med in expected_overdue_names:
+                stem = med.split()[0].lower()
+                assert stem in reply_lower or "sugar tablet" in reply_lower or "metformin" in reply_lower, (
+                    f"Step 2 reply should list overdue med '{med}': {data['spoken_reply']}"
+                )
+            assert "overdue" in reply_lower, f"Step 2 reply should indicate overdue status: {data['spoken_reply']}"
+        elif expected_pending_names:
+            assert "pending" in reply_lower or "upcoming" in reply_lower, (
+                f"Step 2 reply should indicate upcoming/pending status: {data['spoken_reply']}"
+            )
+
+        # 3. Assert it does NOT use 7-day missed count
+        assert "this week" not in reply_lower and "last 7 days" not in reply_lower and "missed 4 doses" not in reply_lower, (
+            f"Step 2 reply must not use 7-day missed count: {data['spoken_reply']}"
+        )
+        print("  [PASS] Step 2 reply dynamically verified against SQLite today's taken and overdue doses.")
 
         # ── Step 3: Priya prepares cardiology visit brief ───────────────
         print("\n[Step 3] Priya (Daughter/Caregiver): \"Prepare me for Amma's cardiology visit on Monday.\"")

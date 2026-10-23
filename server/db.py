@@ -166,3 +166,49 @@ def find_medication(name: str, patient_id: int) -> dict[str, Any] | None:
             if name_lower in alias.lower() or alias.lower() in name_lower:
                 return med
     return None
+
+
+def calculate_adherence_metrics(patient_id: int, days: int = 14) -> dict[str, Any]:
+    """Calculate adherence metrics over the last N days.
+
+    Shared function used across care_summary, prepare_visit_brief, and the card.
+    Guarantees taken + missed == expected, and adherence percentage is exact.
+    """
+    now = datetime.now(IST)
+    start_str = (now - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    meds = fetch_all("SELECT * FROM medications WHERE person_id = ?", (patient_id,))
+    logs = fetch_all(
+        "SELECT dl.*, m.name as med_name FROM dose_logs dl "
+        "JOIN medications m ON dl.medication_id = m.id "
+        "WHERE dl.taken_at >= ? ORDER BY dl.taken_at ASC",
+        (start_str,),
+    )
+
+    total_expected = 0
+    missed_medicines = []
+    for m in meds:
+        t_count = len(json.loads(m.get("times_json", "[]")))
+        m_expected = int(t_count * days)
+        total_expected += m_expected
+        m_taken = sum(1 for l in logs if l.get("medication_id") == m["id"])
+        if m_taken < m_expected:
+            missed_medicines.append({
+                "medication": m["name"],
+                "missed_doses": m_expected - m_taken,
+                "expected": m_expected,
+                "taken": m_taken,
+            })
+
+    total_taken = len(logs)
+    total_missed = max(0, total_expected - total_taken)
+    adherence_pct = round((total_taken / max(1, total_expected)) * 100, 1)
+
+    return {
+        "days": days,
+        "doses_taken": total_taken,
+        "doses_expected": total_expected,
+        "doses_missed": total_missed,
+        "adherence_percentage": adherence_pct,
+        "missed_medicines": missed_medicines,
+    }

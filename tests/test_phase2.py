@@ -144,7 +144,15 @@ async def run_tests():
                     res = await session.call_tool(tool_name, args)
                     assert len(res.content) > 0, "Empty tool result content"
                     raw_text = res.content[0].text
-                    return json.loads(raw_text)
+                    try:
+                        parsed = json.loads(raw_text)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except Exception:
+                        pass
+                    if getattr(res, "structured_content", None) is not None:
+                        return {"data": res.structured_content, "spoken_response": raw_text}
+                    return {"spoken_response": raw_text, "data": {}}
 
     # ── Test 3: Tool 1 - log_dose ──────────────────────────────────────
     print("\n[Test 3] Tool: log_dose")

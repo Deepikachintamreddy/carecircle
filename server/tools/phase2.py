@@ -17,9 +17,11 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from mcp.server.mcpserver import Context
+from mcp.types import CallToolResult, TextContent
 
 from server.db import (
     IST,
+    calculate_adherence_metrics,
     execute,
     fetch_all,
     fetch_one,
@@ -193,6 +195,7 @@ async def whats_due(
                     "scheduled_time": slot_time,
                     "taken_at": log_entry["taken_at"],
                     "display": f"{med['name']} at {taken_display}",
+                    "status": "Taken",
                 })
             else:
                 item = {
@@ -201,10 +204,13 @@ async def whats_due(
                     "display": f"{slot_display} {med['name']}",
                 }
                 if not is_today and target_date < today_str:
+                    item["status"] = "Missed"
                     missed.append(item)
                 elif is_today and slot_time < now_hm:
+                    item["status"] = "Overdue"
                     missed.append(item)
                 else:
+                    item["status"] = "Pending"
                     pending.append(item)
 
     # Formulate concise spoken summary (max 2 sentences)
@@ -215,9 +221,15 @@ async def whats_due(
     else:
         sentences.append(f"No medicines have been logged yet for {patient_name} today.")
 
-    if missed:
-        missed_names = [f"{_format_time_display(m['scheduled_time'])} {m['medication']}" for m in missed]
-        sentences.append(f"The {', and '.join(missed_names)} is not logged yet.")
+    overdue_items = [m for m in missed if m.get("status") == "Overdue"]
+    past_missed_items = [m for m in missed if m.get("status") == "Missed"]
+
+    if overdue_items:
+        overdue_names = [f"{_format_time_display(m['scheduled_time'])} {m['medication']}" for m in overdue_items]
+        sentences.append(f"The {', and '.join(overdue_names)} is overdue and not logged yet.")
+    elif past_missed_items:
+        missed_names = [f"{_format_time_display(m['scheduled_time'])} {m['medication']}" for m in past_missed_items]
+        sentences.append(f"The {', and '.join(missed_names)} was not logged.")
     elif pending:
         pending_names = [f"{_format_time_display(p['scheduled_time'])} {p['medication']}" for p in pending]
         sentences.append(f"Upcoming doses are {', and '.join(pending_names)}.")
@@ -233,6 +245,7 @@ async def whats_due(
             "patient": patient_name,
             "taken": taken,
             "pending": pending,
+            "overdue": overdue_items,
             "missed": missed,
             "total_scheduled": len(taken) + len(pending) + len(missed),
         },
@@ -395,11 +408,15 @@ async def add_appointment(
 async def care_summary(
     days: int = 14,
     ctx: Context = None,  # type: ignore[assignment]
-) -> dict[str, Any]:
-    """Generate a high-level care summary for the family or clinic over the past N days.
+) -> CallToolResult:
+    """Generate a care adherence summary over past N days or week.
+
+    Check if the patient has taken or missed medication doses, overall adherence percentage,
+    symptoms, and supply alerts. Call this whenever asked about missed medicines,
+    adherence, or weekly/daily care summaries.
 
     Args:
-        days: Number of days to summarize (default: 14).
+        days: Number of past days to analyze (e.g. 7 for 'this week' or 'past week', 14 for two weeks; default: 14).
     """
     caller = get_caller(ctx)  # All roles (patient, caregiver, viewer) permitted
     patient_id = get_patient_id()
@@ -407,23 +424,15 @@ async def care_summary(
     patient_name = patient["name"] if patient else "the patient"
 
     now = datetime.now(IST)
-    start_dt = now - timedelta(days=days)
-    start_str = start_dt.strftime("%Y-%m-%d")
+    start_str = (now - timedelta(days=days)).strftime("%Y-%m-%d")
 
-    # Dose adherence
-    meds = fetch_all("SELECT * FROM medications WHERE person_id = ?", (patient_id,))
-    logs = fetch_all(
-        "SELECT dl.*, m.name as med_name FROM dose_logs dl "
-        "JOIN medications m ON dl.medication_id = m.id "
-        "WHERE dl.taken_at >= ? ORDER BY dl.taken_at ASC",
-        (start_str,),
-    )
-
-    # Estimate expected doses
-    total_expected = sum(int(len(json.loads(m.get("times_json", "[]"))) * days) for m in meds)
-    total_taken = len(logs)
-    missed_count = max(0, total_expected - total_taken)
-    adherence_pct = round((total_taken / max(1, total_expected)) * 100, 1)
+    # Dose adherence via single shared calculation function
+    adherence = calculate_adherence_metrics(patient_id, days=days)
+    total_expected = adherence["doses_expected"]
+    total_taken = adherence["doses_taken"]
+    missed_count = adherence["doses_missed"]
+    adherence_pct = adherence["adherence_percentage"]
+    missed_medicines = adherence["missed_medicines"]
 
     # Symptoms in window
     notes = fetch_all(
@@ -435,6 +444,7 @@ async def care_summary(
     )
 
     # Supply alerts (<= 5 days left)
+    meds = fetch_all("SELECT * FROM medications WHERE person_id = ?", (patient_id,))
     supply_alerts = []
     for m in meds:
         daily = m.get("pills_per_day", 1.0)
@@ -452,8 +462,8 @@ async def care_summary(
         (patient_id, now.strftime("%Y-%m-%d")),
     )
 
-    # Spoken summary
-    parts = [f"Over the last {days} days, {patient_name} took {total_taken} of {total_expected} scheduled doses ({adherence_pct}% adherence)."]
+    # Spoken summary (at most 2 sentences)
+    parts = [f"Over the last {days} days, {patient_name} took {total_taken} of {total_expected} scheduled doses with {missed_count} missed ({adherence_pct}% adherence)."]
     if supply_alerts:
         first_alert = supply_alerts[0]
         parts.append(f"{first_alert['medication']} is low with {int(first_alert['days_left'])} days left.")
@@ -463,22 +473,26 @@ async def care_summary(
 
     spoken = " ".join(parts[:2])
 
-    return {
-        "spoken_response": spoken,
-        "data": {
-            "days": days,
-            "adherence_percentage": adherence_pct,
-            "doses_taken": total_taken,
-            "doses_expected": total_expected,
-            "doses_missed": missed_count,
-            "recent_symptoms": [
-                {"id": n["id"], "text": n["text"], "date": n["created_at"][:10], "author": n["author_name"]}
-                for n in notes
-            ],
-            "supply_alerts": supply_alerts,
-            "upcoming_appointments": [
-                {"id": a["id"], "doctor": a["doctor"], "specialty": a["specialty"], "starts_at": a["starts_at"]}
-                for a in appointments
-            ],
-        },
+    card_data = {
+        "days": days,
+        "adherence": adherence,
+        "adherence_percentage": adherence_pct,
+        "doses_taken": total_taken,
+        "doses_expected": total_expected,
+        "doses_missed": missed_count,
+        "missed_medicines": missed_medicines,
+        "recent_symptoms": [
+            {"id": n["id"], "text": n["text"], "date": n["created_at"][:10], "author": n["author_name"]}
+            for n in notes
+        ],
+        "supply_alerts": supply_alerts,
+        "upcoming_appointments": [
+            {"id": a["id"], "doctor": a["doctor"], "specialty": a["specialty"], "starts_at": a["starts_at"]}
+            for a in appointments
+        ],
     }
+
+    return CallToolResult(
+        content=[TextContent(type="text", text=spoken)],
+        structuredContent=card_data,
+    )

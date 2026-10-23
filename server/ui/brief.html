@@ -200,6 +200,11 @@
       color: var(--warning);
     }
 
+    .dose-icon.overdue {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+
     .dose-icon.missed {
       background: var(--danger-bg);
       color: var(--danger);
@@ -230,6 +235,11 @@
     .dose-badge.pending {
       background: var(--warning-bg);
       color: var(--warning);
+    }
+
+    .dose-badge.overdue {
+      background: var(--danger-bg);
+      color: var(--danger);
     }
 
     .dose-badge.missed {
@@ -425,19 +435,19 @@
     <section class="card">
       <div class="card-title">
         <span>14-Day Care Metrics</span>
-        <span id="adherence-badge" style="color: var(--success); font-weight: 700;">65.7% Adherence</span>
+        <span id="adherence-badge" style="color: var(--success); font-weight: 700;">--% Adherence</span>
       </div>
       <div class="metrics-grid">
         <div class="metric-box">
-          <div class="metric-value" id="doses-taken" style="color: var(--success);">46</div>
+          <div class="metric-value" id="doses-taken" style="color: var(--success);">--</div>
           <div class="metric-label">Doses Taken</div>
         </div>
         <div class="metric-box">
-          <div class="metric-value" id="doses-missed" style="color: var(--danger);">24</div>
+          <div class="metric-value" id="doses-missed" style="color: var(--danger);">--</div>
           <div class="metric-label">Doses Missed</div>
         </div>
         <div class="metric-box">
-          <div class="metric-value" id="symptoms-count" style="color: var(--purple);">3</div>
+          <div class="metric-value" id="symptoms-count" style="color: var(--purple);">--</div>
           <div class="metric-label">Symptom Notes</div>
         </div>
       </div>
@@ -450,46 +460,7 @@
         <span id="today-date-display" style="font-size: 13px; text-transform: none; color: var(--text-muted);">Today</span>
       </div>
       <div class="dose-list" id="today-dose-list">
-        <div class="dose-item">
-          <div class="dose-left">
-            <div class="dose-icon taken">✓</div>
-            <div>
-              <div class="dose-name">Amlodipine (BP tablet)</div>
-              <div class="dose-time">Taken at 8:10 AM</div>
-            </div>
-          </div>
-          <span class="dose-badge taken">Taken</span>
-        </div>
-        <div class="dose-item">
-          <div class="dose-left">
-            <div class="dose-icon taken">✓</div>
-            <div>
-              <div class="dose-name">Vitamin D3</div>
-              <div class="dose-time">Taken at 9:00 AM</div>
-            </div>
-          </div>
-          <span class="dose-badge taken">Taken</span>
-        </div>
-        <div class="dose-item">
-          <div class="dose-left">
-            <div class="dose-icon pending">⏱</div>
-            <div>
-              <div class="dose-name">Metformin (sugar tablet)</div>
-              <div class="dose-time">Scheduled for 2:00 PM</div>
-            </div>
-          </div>
-          <span class="dose-badge pending">Pending</span>
-        </div>
-        <div class="dose-item">
-          <div class="dose-left">
-            <div class="dose-icon pending">⏱</div>
-            <div>
-              <div class="dose-name">Amlodipine (BP tablet)</div>
-              <div class="dose-time">Scheduled for 8:00 PM</div>
-            </div>
-          </div>
-          <span class="dose-badge pending">Pending</span>
-        </div>
+        <!-- Rendered dynamically from structuredContent only -->
       </div>
     </section>
 
@@ -526,6 +497,7 @@
     </section>
 
     <div class="footer">
+      <div style="font-size: 11px; margin-bottom: 4px; opacity: 0.85;">Demo data. Questions to discuss with a doctor, not medical advice.</div>
       <span>CareCircle • Alexa+ Family Care Coordinator • MCP Spec 2025-11-25</span>
     </div>
   </div>
@@ -541,18 +513,38 @@
         method: method,
         params: params || {}
       };
-      console.log("[MCP App] Sending to host:", message);
+      console.log("[MCP App] Request to host:", message);
       window.parent.postMessage(message, "*");
       return id;
     }
 
-    // 1. Initial MCP Apps Handshake per Spec 2026-01-26
+    function sendMcpNotification(method, params) {
+      const message = {
+        jsonrpc: "2.0",
+        method: method,
+        params: params || {}
+      };
+      console.log("[MCP App] Notification to host:", message);
+      window.parent.postMessage(message, "*");
+    }
+
+    function sendSizeChanged() {
+      sendMcpNotification("ui/notifications/size-changed", {
+        width: document.documentElement.scrollWidth || window.innerWidth,
+        height: document.documentElement.scrollHeight || window.innerHeight
+      });
+    }
+
+    // 1. Handshake: Send ui/initialize per MCP Apps spec 2026-01-26
     function initMcpApp() {
       sendMcpRequest("ui/initialize", {
         protocolVersion: "2026-01-26",
-        appInfo: {
+        clientInfo: {
           name: "carecircle-brief",
           version: "1.0.0"
+        },
+        appCapabilities: {
+          availableDisplayModes: ["inline"]
         }
       });
     }
@@ -563,71 +555,117 @@
       initMcpApp();
     }
 
-    // 2. Trigger pharmacy refill via host tool call (params.name, params.arguments)
+    let currentLowStockMed = "Amlodipine (BP tablet)";
+    let currentLowStockQty = 60;
+    let currentToolInputArgs = {};
+
+    // 2. Trigger pharmacy refill via tools/call { name, arguments } WITHOUT confirm
     function triggerRefill() {
       const btn = document.getElementById("btn-refill");
-      btn.innerText = "Requesting Refill...";
+      btn.innerText = "Confirmation Prompted...";
       btn.disabled = true;
 
-      // Send tools/call strictly per MCP Apps spec 2026-01-26
+      const targetMedicine = currentLowStockMed || "Amlodipine (BP tablet)";
+
       sendMcpRequest("tools/call", {
         name: "request_refill",
         arguments: {
-          medicine: "BP tablet",
-          quantity: 60,
-          confirm: true
+          medicine: targetMedicine,
+          quantity: currentLowStockQty || 60
         }
       });
 
-      // Update UI optimistically / on response
-      setTimeout(() => {
-        btn.innerText = "Refill Ordered (Mock)";
-        btn.classList.add("ordered");
-        document.getElementById("refill-desc").innerText = "Order placed: 60 pills of Amlodipine (Ref: #MOCK-Refill). Delivery expected in 2 days.";
-      }, 600);
+      document.getElementById("refill-desc").innerText = "Refill requested for " + targetMedicine + ": Alexa+ is prompting for confirmation before placing the mock pharmacy order.";
+      sendSizeChanged();
     }
 
-    // 3. Listen for Handshake and Tool Result Notifications from Host
+    // 3. Listen for Handshake Response and Host Notifications
     window.addEventListener("message", (event) => {
       const msg = event.data;
       if (!msg) return;
       console.log("[MCP App] Received message from host:", msg);
 
-      // Handle ui/initialize response
+      // Handle ui/initialize response -> send notification ui/notifications/initialized
       if (msg.result && msg.result.protocolVersion) {
         console.log("[MCP App] Handshake complete with host:", msg.result);
+        sendMcpNotification("ui/notifications/initialized", {});
+        sendSizeChanged();
         return;
       }
 
-      // Handle MCP Apps 2026-01-26 tool result notification
-      if (msg.method === "ui/notifications/tool-result" || msg.method === "notifications/tool-result" || msg.method === "ui/toolResult") {
-        const payload = msg.params?.data || msg.params?.result || msg.params;
-        if (payload) updateCardData(payload);
+      // Handle ui/notifications/tool-input (params.arguments)
+      if (msg.method === "ui/notifications/tool-input") {
+        currentToolInputArgs = msg.params?.arguments || {};
+        console.log("[MCP App] Stored tool-input arguments:", currentToolInputArgs);
         return;
       }
 
-      // Handle direct tool result in JSON-RPC response
+      // Handle ui/notifications/tool-result where params IS the CallToolResult
+      if (msg.method === "ui/notifications/tool-result") {
+        const callToolResult = msg.params;
+        const structuredContent = callToolResult?.structuredContent || callToolResult?.data || callToolResult;
+        if (structuredContent) {
+          updateCardData(structuredContent);
+          sendSizeChanged();
+        }
+        return;
+      }
+
+      // Handle direct tool result in JSON-RPC response (e.g. reply to tools/call)
       if (msg.result && typeof msg.result === "object") {
-        const payload = msg.result.data || msg.result;
+        const payload = msg.result.structuredContent || msg.result.data || msg.result;
         updateCardData(payload);
+        sendSizeChanged();
         return;
       }
 
-      // Backward compatibility with basic hosts
+      // Backward compatibility with legacy hosts
       if (msg.type === "carecircle_data" || msg.data) {
         updateCardData(msg.data || msg);
+        sendSizeChanged();
       }
     });
 
     function updateCardData(payload) {
-      if (payload.adherence) {
-        document.getElementById("adherence-badge").innerText = payload.adherence.adherence_percentage + "% Adherence";
-        document.getElementById("doses-taken").innerText = payload.adherence.doses_taken;
-        document.getElementById("doses-missed").innerText = payload.adherence.doses_missed;
+      if (!payload) return;
+
+      // Extract adherence metrics (from shared calculate_adherence_metrics)
+      const adh = payload.adherence || payload;
+      if (adh.doses_taken !== undefined && adh.doses_missed !== undefined) {
+        document.getElementById("doses-taken").innerText = adh.doses_taken;
+        document.getElementById("doses-missed").innerText = adh.doses_missed;
+        const pct = adh.adherence_percentage !== undefined ? adh.adherence_percentage : Math.round((adh.doses_taken / Math.max(1, (adh.doses_taken + adh.doses_missed))) * 1000) / 10;
+        document.getElementById("adherence-badge").innerText = pct + "% Adherence";
       }
+
+      // Low stock detection from tool result
+      let lowMed = null;
+      if (payload.low_stock) {
+        lowMed = payload.low_stock;
+      } else if (payload.supply_alerts && payload.supply_alerts.length > 0) {
+        lowMed = payload.supply_alerts[0];
+      } else if (payload.medications && Array.isArray(payload.medications)) {
+        lowMed = payload.medications.find(m => m.is_low);
+      } else if (payload.current_medications && Array.isArray(payload.current_medications)) {
+        lowMed = payload.current_medications.find(m => m.is_low);
+      }
+
+      if (lowMed) {
+        currentLowStockMed = lowMed.name || lowMed.medication;
+        currentLowStockQty = (lowMed.daily_dose || lowMed.pills_per_day || 2) * 30;
+        const bannerTitle = document.getElementById("refill-med-name");
+        const bannerDesc = document.getElementById("refill-desc");
+        if (bannerTitle) bannerTitle.innerText = currentLowStockMed + " running low";
+        if (bannerDesc) {
+          const daysLeft = lowMed.days_left !== undefined ? lowMed.days_left : 3;
+          const pillsLeft = lowMed.pills_left !== undefined ? lowMed.pills_left : 6;
+          bannerDesc.innerText = daysLeft + " days of supply remaining (" + pillsLeft + " pills).";
+        }
+      }
+
       if (payload.appointment) {
         document.getElementById("doctor-name").innerText = payload.appointment.doctor;
-        document.getElementById("doctor-specialty").innerText = payload.appointment.specialty + " • " + payload.appointment.starts_at.substring(0, 10);
+        document.getElementById("doctor-specialty").innerText = payload.appointment.specialty + " • " + (payload.appointment.starts_at ? payload.appointment.starts_at.substring(0, 10) : "Upcoming");
       }
       if (payload.questions_to_ask && payload.questions_to_ask.length > 0) {
         const qList = document.getElementById("questions-list");
@@ -644,10 +682,59 @@
         payload.symptoms.forEach(s => {
           const div = document.createElement("div");
           div.className = "tag symptom";
-          div.innerText = s.text + " (" + s.date + ")";
+          div.innerText = s.text + " (" + (s.date || "") + ")";
           sList.appendChild(div);
         });
         document.getElementById("symptoms-count").innerText = payload.symptoms.length;
+      }
+
+      // Render medicine schedule ONLY from structuredContent
+      const doseList = document.getElementById("today-dose-list");
+      if (doseList) {
+        let scheduleItems = [];
+        const ts = payload.today_schedule || payload;
+        if (ts.taken || ts.overdue || ts.pending) {
+          (ts.taken || []).forEach(item => scheduleItems.push({
+            name: item.medication || item.name,
+            time: item.taken_at ? "Taken at " + (item.taken_at.length > 5 ? item.taken_at.substring(11, 16) : item.taken_at) : (item.display || "Logged"),
+            status: "Taken",
+            icon: "✓",
+            cls: "taken"
+          }));
+          (ts.overdue || []).forEach(item => scheduleItems.push({
+            name: item.medication || item.name,
+            time: "Scheduled for " + (item.scheduled_time || item.display || "Earlier"),
+            status: "Overdue",
+            icon: "⚠️",
+            cls: "overdue"
+          }));
+          (ts.pending || []).forEach(item => scheduleItems.push({
+            name: item.medication || item.name,
+            time: "Scheduled for " + (item.scheduled_time || item.display || "Upcoming"),
+            status: "Pending",
+            icon: "⏱",
+            cls: "pending"
+          }));
+        }
+
+        if (scheduleItems.length > 0) {
+          doseList.innerHTML = "";
+          scheduleItems.forEach(d => {
+            const div = document.createElement("div");
+            div.className = "dose-item";
+            div.innerHTML = `
+              <div class="dose-left">
+                <div class="dose-icon ${d.cls}">${d.icon}</div>
+                <div>
+                  <div class="dose-name">${d.name}</div>
+                  <div class="dose-time">${d.time}</div>
+                </div>
+              </div>
+              <span class="dose-badge ${d.cls}">${d.status}</span>
+            `;
+            doseList.appendChild(div);
+          });
+        }
       }
     }
   </script>

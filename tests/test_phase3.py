@@ -66,7 +66,16 @@ async def call_mcp_tool(token: str, tool_name: str, args: dict) -> dict:
                 await session.initialize()
                 res = await session.call_tool(tool_name, args)
                 assert len(res.content) > 0, "Empty tool result content"
-                return json.loads(res.content[0].text)
+                raw_text = res.content[0].text
+                try:
+                    parsed = json.loads(raw_text)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except Exception:
+                    pass
+                if getattr(res, "structured_content", None) is not None:
+                    return {"data": res.structured_content, "spoken_response": raw_text}
+                return {"spoken_response": raw_text, "data": {}}
 
 
 async def run_tests():

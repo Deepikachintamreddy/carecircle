@@ -407,9 +407,9 @@
 
       <!-- Transcript Box -->
       <div class="transcript-box" id="transcript">
-        <div class="bubble alexa">
+        <div class="bubble alexa" id="welcome-bubble">
           <span class="speaker-tag">Alexa+</span>
-          <div>Good morning! I am CareCircle, your family care coordinator. Amma is currently selected. Speak or type your request below.</div>
+          <div id="welcome-text">Good morning! I am CareCircle, your family care coordinator. Amma is currently selected. Speak or type your request below.</div>
           <span class="bubble-meta">Connected via Streamable HTTP at /mcp</span>
         </div>
       </div>
@@ -450,6 +450,31 @@
     let recognition = null;
     let isListening = false;
     let lastCardData = null;
+    let cardInitialized = false;
+    let lastRawCallToolResult = null;
+    let lastToolArgs = {};
+
+    function sendToolDataToCard() {
+      if (!cardInitialized || !lastRawCallToolResult) return;
+      const iframe = document.getElementById("mcp-app-frame");
+      if (!iframe || !iframe.contentWindow) return;
+
+      // 1. Send ui/notifications/tool-input
+      iframe.contentWindow.postMessage({
+        jsonrpc: "2.0",
+        method: "ui/notifications/tool-input",
+        params: {
+          arguments: lastToolArgs || {}
+        }
+      }, "*");
+
+      // 2. Then send ui/notifications/tool-result with the raw CallToolResult
+      iframe.contentWindow.postMessage({
+        jsonrpc: "2.0",
+        method: "ui/notifications/tool-result",
+        params: lastRawCallToolResult
+      }, "*");
+    }
 
     // Load demo tokens from backend
     async function loadTokens() {
@@ -479,8 +504,27 @@
     }
     loadProviderInfo();
 
+    function getTimeOfDayGreeting() {
+      const hour = new Date().getHours();
+      if (hour < 12) return "Good morning";
+      if (hour < 17) return "Good afternoon";
+      return "Good evening";
+    }
+
+    function updateWelcomeMessage() {
+      const select = document.getElementById("speaker-select");
+      const speaker = select ? select.value : "Amma";
+      const greeting = getTimeOfDayGreeting();
+      const el = document.getElementById("welcome-text");
+      if (el) {
+        el.innerText = `${greeting}, ${speaker}! I am CareCircle, your family care coordinator. ${speaker} is currently selected. Speak or type your request below.`;
+      }
+    }
+    updateWelcomeMessage();
+
     function onSpeakerChange() {
       const speaker = document.getElementById("speaker-select").value;
+      updateWelcomeMessage();
       addSystemMessage(`Switched speaker to ${speaker}. Bearer token updated.`);
     }
 
@@ -570,26 +614,15 @@
 
         addAlexaMessage(data.spoken_reply || "Done.", data.tool_called);
 
-        // Deliver card data to iframe via MCP Apps spec 2026-01-26 notification & legacy format
-        if (data.card_data) {
-          lastCardData = data.card_data;
-          const iframe = document.getElementById("mcp-app-frame");
-          if (iframe && iframe.contentWindow) {
-            // MCP Apps spec 2026-01-26 tool result notification
-            iframe.contentWindow.postMessage({
-              jsonrpc: "2.0",
-              method: "ui/notifications/tool-result",
-              params: {
-                tool: data.tool_called || "prepare_visit_brief",
-                data: data.card_data
-              }
-            }, "*");
-            // Backward compatibility
-            iframe.contentWindow.postMessage({
-              type: "carecircle_data",
-              data: data.card_data
-            }, "*");
-          }
+        // Deliver card data to iframe via MCP Apps spec 2026-01-26 protocol
+        if (data.call_tool_result || data.card_data) {
+          lastRawCallToolResult = data.call_tool_result || {
+            content: [{ type: "text", text: data.spoken_reply || "" }],
+            structuredContent: data.card_data || {},
+            isError: false
+          };
+          lastToolArgs = data.tool_args || {};
+          sendToolDataToCard();
         }
       } catch (err) {
         console.error("Chat error:", err);
@@ -653,7 +686,7 @@
       const msg = event.data;
       if (!msg) return;
 
-      // 1. Handshake response to ui/initialize
+      // 1. Handshake response to ui/initialize per spec 2026-01-26
       if (msg.method === "ui/initialize") {
         console.log("[Host] Handling ui/initialize handshake from MCP App", msg);
         const iframe = document.getElementById("mcp-app-frame");
@@ -663,61 +696,73 @@
             id: msg.id,
             result: {
               protocolVersion: "2026-01-26",
-              hostInfo: { name: "CareCircle Alexa+ Host", version: "1.0.0" }
+              hostInfo: { name: "CareCircle Alexa+ Host", version: "1.0.0" },
+              hostCapabilities: { serverTools: {} },
+              hostContext: { displayMode: "inline", theme: "light", platform: "web" }
             }
           }, "*");
-
-          // If we have cached card data, immediately push it to the card
-          if (lastCardData) {
-            iframe.contentWindow.postMessage({
-              jsonrpc: "2.0",
-              method: "ui/notifications/tool-result",
-              params: {
-                tool: "prepare_visit_brief",
-                data: lastCardData
-              }
-            }, "*");
-          }
         }
+        // Requirement 3: Send nothing to the card until it receives ui/notifications/initialized
         return;
       }
 
-      // 2. Handle tools/call from MCP App strictly per spec
+      // 2. Card notification: ui/notifications/initialized -> send tool-input then tool-result
+      if (msg.method === "ui/notifications/initialized") {
+        console.log("[Host] MCP App notified initialized");
+        cardInitialized = true;
+        sendToolDataToCard();
+        return;
+      }
+
+      // 3. Forward the card's tools/call to the MCP server and return the result
       if (msg.method === "tools/call") {
         const params = msg.params || {};
         const toolName = params.name || msg.name;
         const toolArgs = params.arguments || msg.arguments || {};
-        console.log("[Host] Received tools/call from MCP Apps card:", toolName, toolArgs);
+        console.log("[Host] Forwarding card tools/call to MCP Server:", toolName, toolArgs);
 
         const speaker = document.getElementById("speaker-select").value;
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: `confirm ${toolName}`,
-            speaker: speaker,
-            token: tokensMap[speaker],
-            confirmation_state: {
-              pending: true,
-              action: toolName,
-              medicine: toolArgs.medicine || "BP tablet"
-            }
-          })
-        });
-        const data = await res.json();
-        addAlexaMessage(data.spoken_reply, toolName);
+        const token = tokensMap[speaker] || "";
 
-        // Send JSON-RPC response back to iframe
-        const iframe = document.getElementById("mcp-app-frame");
-        if (iframe && iframe.contentWindow && msg.id) {
-          iframe.contentWindow.postMessage({
-            jsonrpc: "2.0",
-            id: msg.id,
-            result: {
-              content: [{ type: "text", text: data.spoken_reply }]
-            }
-          }, "*");
+        try {
+          const res = await fetch("/api/mcp/tools/call", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: toolName,
+              arguments: toolArgs,
+              speaker: speaker,
+              token: token
+            })
+          });
+          const data = await res.json();
+          const rawResult = data.result || {
+            content: [{ type: "text", text: data.spoken_reply || "" }],
+            structuredContent: {},
+            isError: false
+          };
+
+          addAlexaMessage(data.spoken_reply || (rawResult.content && rawResult.content[0] ? rawResult.content[0].text : "Refill requested."), toolName);
+
+          // Return result to card
+          const iframe = document.getElementById("mcp-app-frame");
+          if (iframe && iframe.contentWindow && msg.id !== undefined) {
+            iframe.contentWindow.postMessage({
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: rawResult
+            }, "*");
+          }
+        } catch (err) {
+          console.error("Error executing forwarded tool call:", err);
         }
+        return;
+      }
+
+      // 4. Handle ui/notifications/size-changed
+      if (msg.method === "ui/notifications/size-changed") {
+        console.log("[Host] MCP App size changed:", msg.params);
+        return;
       }
     });
 

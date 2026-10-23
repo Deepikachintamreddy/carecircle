@@ -212,6 +212,9 @@ To test in an MCP Apps host such as [MCPJam](https://www.mcpjam.com) or Claude D
    ```
 3. Call `prepare_visit_brief` or `care_summary`. The host detects `_meta.ui.resourceUri = "ui://carecircle/brief"`, fetches the card via `resources/read`, and renders the visual interface inline with the interactive "Request Refill" button!
 
+> [!NOTE]
+> Our web client does not implement the separate-origin sandbox proxy that the spec requires for web hosts. Use MCPJam or Claude Desktop for a fully compliant host.
+
 ---
 
 ## Repository Structure
@@ -254,6 +257,9 @@ carecircle/
 
 > [!NOTE]
 > **Privacy Auditability**: Any deletion requested through `forget` is permanently recorded in `privacy_log` with actor ID, timestamp, and target entity for family transparency.
+
+> [!NOTE]
+> **MCP Apps Web Host Compliance**: Our web client does not implement the separate-origin sandbox proxy that the spec requires for web hosts. Use MCPJam or Claude Desktop for a fully compliant host.
 
 ---
 

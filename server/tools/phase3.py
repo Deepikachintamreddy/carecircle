@@ -15,9 +15,11 @@ from typing import Any
 
 from pydantic import BaseModel
 from mcp.server.mcpserver import Context
+from mcp.types import CallToolResult, TextContent
 
 from server.db import (
     IST,
+    calculate_adherence_metrics,
     execute,
     fetch_all,
     fetch_one,
@@ -26,6 +28,7 @@ from server.db import (
     now_ist,
 )
 from server.security import get_caller, require_role
+from server.tools.phase2 import whats_due
 
 
 class ConfirmSchema(BaseModel):
@@ -110,7 +113,7 @@ async def request_refill(
     confirm: bool = False,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
-    """Request a pharmacy refill for a medication.
+    """Request a pharmacy refill for a medication. Call this whenever a medication is running low, needs a refill, or is almost finished.
 
     CONFIRMATION REQUIRED: This action places an order (mock pharmacy order).
     Will prompt for confirmation via elicitation or require confirm=true.
@@ -194,11 +197,11 @@ async def request_refill(
 async def prepare_visit_brief(
     appointment_id: int | None = None,
     ctx: Context = None,  # type: ignore[assignment]
-) -> dict[str, Any]:
-    """Generate a comprehensive doctor visit brief for the upcoming appointment.
+) -> CallToolResult:
+    """Check upcoming doctor appointments and prepare a comprehensive doctor visit brief.
 
-    Collects missed doses, symptom logs, active medications, and recommended doctor questions
-    from the last 14 days of care records.
+    Call this tool whenever asked about upcoming doctor appointments, doctor visits,
+    specialist consultations (e.g. Dr. Rao, Cardiology), or preparing for a clinic visit.
 
     Args:
         appointment_id: Specific appointment ID, or defaults to the next scheduled appointment.
@@ -229,27 +232,13 @@ async def prepare_visit_brief(
     specialty_str = appt.get("specialty", "General Medicine") if appt else "Checkup"
     appt_time_str = appt.get("starts_at", "Upcoming") if appt else "soon"
 
-
-    # 2. 14 days history window
+    # 2. 14 days history window using single shared calculation function
     start_14 = (now - timedelta(days=14)).strftime("%Y-%m-%d")
-
-    meds = fetch_all("SELECT * FROM medications WHERE person_id = ?", (patient_id,))
-    logs = fetch_all(
-        "SELECT dl.*, m.name as med_name FROM dose_logs dl "
-        "JOIN medications m ON dl.medication_id = m.id "
-        "WHERE dl.taken_at >= ? ORDER BY dl.taken_at ASC",
-        (start_14,),
-    )
-
-    # Calculate missed doses over 14 days
-    total_expected = 0
-    for m in meds:
-        daily_count = len(json.loads(m.get("times_json", "[]")))
-        total_expected += daily_count * 14
-
-    total_taken = len(logs)
-    missed_count = max(0, total_expected - total_taken)
-    adherence_pct = round((total_taken / max(1, total_expected)) * 100, 1)
+    adherence = calculate_adherence_metrics(patient_id, days=14)
+    total_taken = adherence["doses_taken"]
+    total_expected = adherence["doses_expected"]
+    missed_count = adherence["doses_missed"]
+    adherence_pct = adherence["adherence_percentage"]
 
     # 3. Symptoms logged in window
     symptom_notes = fetch_all(
@@ -272,42 +261,70 @@ async def prepare_visit_brief(
     if not questions:
         questions.append(f"Review general medication tolerance and progress under current regimen.")
 
+    # Identify low stock medications
+    meds = fetch_all("SELECT * FROM medications WHERE person_id = ?", (patient_id,))
+    low_supply_meds = []
+    for m in meds:
+        daily_count = len(json.loads(m.get("times_json", "[]")))
+        p_left = m["pills_left"]
+        d_left = round(p_left / max(0.1, daily_count), 1)
+        if d_left <= 5:
+            low_supply_meds.append({
+                "name": m["name"],
+                "pills_left": p_left,
+                "days_left": d_left,
+                "daily_dose": daily_count,
+            })
+
     spoken = (
         f"Here is {patient_name}'s brief for {doctor_str} ({specialty_str}). "
         f"Over the last 14 days, she took {total_taken} doses with {missed_count} missed, and had {len(symptom_notes)} symptom notes."
     )
 
-    return {
-        "spoken_response": spoken,
-        "data": {
-            "patient": patient_name,
-            "appointment": {
-                "doctor": doctor_str,
-                "specialty": specialty_str,
-                "starts_at": appt_time_str,
-            },
-            "adherence": {
-                "adherence_percentage": adherence_pct,
-                "doses_taken": total_taken,
-                "doses_expected": total_expected,
-                "doses_missed": missed_count,
-            },
-            "symptoms": [
-                {"id": n["id"], "text": n["text"], "date": n["created_at"][:10], "logged_by": n["author_name"]}
-                for n in symptom_notes
-            ],
-            "current_medications": [
-                {
-                    "name": m["name"],
-                    "dose": m["dose"],
-                    "times": json.loads(m.get("times_json", "[]")),
-                    "pills_left": m["pills_left"],
-                }
-                for m in meds
-            ],
-            "questions_to_ask": questions,
-        },
+    # Include today's schedule dynamically from whats_due
+    due_res = await whats_due(ctx=ctx)
+    today_schedule = {
+        "taken": due_res["data"].get("taken", []),
+        "pending": due_res["data"].get("pending", []),
+        "overdue": due_res["data"].get("overdue", []),
     }
+
+    card_data = {
+        "patient": patient_name,
+        "appointment": {
+            "doctor": doctor_str,
+            "specialty": specialty_str,
+            "starts_at": appt_time_str,
+        },
+        "adherence": adherence,
+        "adherence_percentage": adherence_pct,
+        "doses_taken": total_taken,
+        "doses_expected": total_expected,
+        "doses_missed": missed_count,
+        "today_schedule": today_schedule,
+        "symptoms": [
+            {"id": n["id"], "text": n["text"], "date": n["created_at"][:10], "logged_by": n["author_name"]}
+            for n in symptom_notes
+        ],
+        "current_medications": [
+            {
+                "name": m["name"],
+                "dose": m["dose"],
+                "times": json.loads(m.get("times_json", "[]")),
+                "pills_left": m["pills_left"],
+                "days_left": round(m["pills_left"] / max(0.1, len(json.loads(m.get("times_json", "[]")))), 1),
+                "is_low": round(m["pills_left"] / max(0.1, len(json.loads(m.get("times_json", "[]")))), 1) <= 5,
+            }
+            for m in meds
+        ],
+        "low_stock": low_supply_meds[0] if low_supply_meds else None,
+        "questions_to_ask": questions,
+    }
+
+    return CallToolResult(
+        content=[TextContent(type="text", text=spoken)],
+        structuredContent=card_data,
+    )
 
 
 # ── Tool 10: forget ───────────────────────────────────────────────────

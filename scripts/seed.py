@@ -48,8 +48,18 @@ def seed() -> None:
     set_db_path(db_path)
 
     # Wipe and recreate
-    if Path(db_path).exists():
-        Path(db_path).unlink()
+    try:
+        if Path(db_path).exists():
+            Path(db_path).unlink()
+    except Exception:
+        conn = get_connection()
+        for tbl in ("refill_orders", "dose_logs", "privacy_log", "notes", "appointments", "medications", "people"):
+            try:
+                conn.execute(f"DROP TABLE IF EXISTS {tbl}")
+            except Exception:
+                pass
+        conn.commit()
+        conn.close()
 
     init_db()
 
