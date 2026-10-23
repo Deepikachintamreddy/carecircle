@@ -1,0 +1,17 @@
+# Official MCP Python SDK (Streamable HTTP, FastMCP, MCP Apps)
+mcp==2.1.1
+httpx==0.28.1
+httpx2==2.16.0
+
+# Web framework (for simulated voice client backend)
+starlette==1.9.0
+uvicorn[standard]==0.54.0
+
+# LLM Providers (Amazon Bedrock via Strands Agents SDK)
+strands-agents==1.62.0
+strands-agents-tools==0.8.10
+boto3==1.43.118
+
+# Data & Environment
+pydantic==2.14.1
+python-dotenv==1.2.4

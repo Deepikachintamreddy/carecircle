@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CareCircle — Family Brief Card</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(22, 30, 49, 0.85);
+      --card-border: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-grad: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.15);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.15);
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.15);
+      --purple: #a855f7;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 20px;
+      line-height: 1.5;
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .logo-area {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-badge {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: var(--accent-grad);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 20px;
+      color: white;
+      box-shadow: 0 4px 14px rgba(56, 189, 248, 0.3);
+    }
+
+    .title-group h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .title-group p {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* Metric Bar */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .metric-box {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px;
+      text-align: center;
+    }
+
+    .metric-value {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .metric-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Dose List */
+    .dose-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .dose-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .dose-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .dose-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 14px;
+    }
+
+    .dose-icon.taken {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+
+    .dose-icon.pending {
+      background: var(--warning-bg);
+      color: var(--warning);
+    }
+
+    .dose-icon.missed {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+
+    .dose-name {
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    .dose-time {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .dose-badge {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+
+    .dose-badge.taken {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+
+    .dose-badge.pending {
+      background: var(--warning-bg);
+      color: var(--warning);
+    }
+
+    .dose-badge.missed {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+
+    /* Supply Alert Banner */
+    .alert-banner {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(239, 68, 68, 0.12) 100%);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .alert-content {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .alert-title {
+      font-weight: 700;
+      font-size: 15px;
+      color: #fbbf24;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .alert-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .btn-refill {
+      background: #f59e0b;
+      color: #000;
+      font-weight: 700;
+      font-size: 14px;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);
+    }
+
+    .btn-refill:hover {
+      background: #d97706;
+      transform: translateY(-1px);
+    }
+
+    .btn-refill:active {
+      transform: translateY(0);
+    }
+
+    .btn-refill.ordered {
+      background: var(--success);
+      color: white;
+      cursor: default;
+    }
+
+    /* Doctor Brief Section */
+    .brief-target {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .doctor-name {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .doctor-meta {
+      font-size: 13px;
+      color: var(--accent);
+    }
+
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .tag {
+      background: rgba(148, 163, 184, 0.1);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .tag.symptom {
+      background: rgba(168, 85, 247, 0.12);
+      border-color: rgba(168, 85, 247, 0.3);
+      color: #c084fc;
+    }
+
+    .questions-box {
+      margin-top: 14px;
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .questions-box h4 {
+      font-size: 13px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .questions-list {
+      list-style-type: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .questions-list li {
+      font-size: 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .questions-list li::before {
+      content: "•";
+      color: var(--accent);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    @media (max-width: 500px) {
+      body { padding: 12px; }
+      .metrics-grid { grid-template-columns: 1fr; }
+      .alert-banner { flex-direction: column; align-items: stretch; }
+      .btn-refill { width: 100%; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo-area">
+        <div class="logo-badge">CC</div>
+        <div class="title-group">
+          <h1>CareCircle</h1>
+          <p id="sub-header">Care brief for Amma</p>
+        </div>
+      </div>
+      <div id="status-pill" class="status-pill">
+        <span class="status-dot"></span>
+        <span id="status-text">Active Care Record</span>
+      </div>
+    </header>
+
+    <!-- Supply Alert Banner -->
+    <div id="refill-banner" class="alert-banner">
+      <div class="alert-content">
+        <div class="alert-title">
+          <span>⚠️</span>
+          <span id="refill-med-name">Amlodipine (BP tablet) running low</span>
+        </div>
+        <div class="alert-desc" id="refill-desc">3 days of supply remaining (6 pills). Daily dose: 2 pills.</div>
+      </div>
+      <button id="btn-refill" class="btn-refill" onclick="triggerRefill()">Request Refill</button>
+    </div>
+
+    <!-- 14-Day Metrics -->
+    <section class="card">
+      <div class="card-title">
+        <span>14-Day Care Metrics</span>
+        <span id="adherence-badge" style="color: var(--success); font-weight: 700;">65.7% Adherence</span>
+      </div>
+      <div class="metrics-grid">
+        <div class="metric-box">
+          <div class="metric-value" id="doses-taken" style="color: var(--success);">46</div>
+          <div class="metric-label">Doses Taken</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="doses-missed" style="color: var(--danger);">24</div>
+          <div class="metric-label">Doses Missed</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="symptoms-count" style="color: var(--purple);">3</div>
+          <div class="metric-label">Symptom Notes</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Today's Schedule -->
+    <section class="card">
+      <div class="card-title">
+        <span>Today's Medicine Schedule</span>
+        <span id="today-date-display" style="font-size: 13px; text-transform: none; color: var(--text-muted);">Today</span>
+      </div>
+      <div class="dose-list" id="today-dose-list">
+        <div class="dose-item">
+          <div class="dose-left">
+            <div class="dose-icon taken">✓</div>
+            <div>
+              <div class="dose-name">Amlodipine (BP tablet)</div>
+              <div class="dose-time">Taken at 8:10 AM</div>
+            </div>
+          </div>
+          <span class="dose-badge taken">Taken</span>
+        </div>
+        <div class="dose-item">
+          <div class="dose-left">
+            <div class="dose-icon taken">✓</div>
+            <div>
+              <div class="dose-name">Vitamin D3</div>
+              <div class="dose-time">Taken at 9:00 AM</div>
+            </div>
+          </div>
+          <span class="dose-badge taken">Taken</span>
+        </div>
+        <div class="dose-item">
+          <div class="dose-left">
+            <div class="dose-icon pending">⏱</div>
+            <div>
+              <div class="dose-name">Metformin (sugar tablet)</div>
+              <div class="dose-time">Scheduled for 2:00 PM</div>
+            </div>
+          </div>
+          <span class="dose-badge pending">Pending</span>
+        </div>
+        <div class="dose-item">
+          <div class="dose-left">
+            <div class="dose-icon pending">⏱</div>
+            <div>
+              <div class="dose-name">Amlodipine (BP tablet)</div>
+              <div class="dose-time">Scheduled for 8:00 PM</div>
+            </div>
+          </div>
+          <span class="dose-badge pending">Pending</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Doctor Visit Brief -->
+    <section class="card" id="doctor-card">
+      <div class="card-title">
+        <span>Upcoming Doctor Visit Brief</span>
+        <span style="font-size: 13px; color: var(--accent); text-transform: none;">Next Monday</span>
+      </div>
+      <div class="brief-target">
+        <div>
+          <div class="doctor-name" id="doctor-name">Dr. Rao</div>
+          <div class="doctor-meta" id="doctor-specialty">Cardiology Consultation • 10:30 AM</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 10px;">
+        <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">REPORTED SYMPTOMS (LAST 14 DAYS)</span>
+        <div class="tag-list" id="symptoms-list">
+          <div class="tag symptom">Morning dizziness noticed when waking up</div>
+          <div class="tag symptom">Mild ankle swelling in evening</div>
+          <div class="tag symptom">Slight headache after lunch</div>
+        </div>
+      </div>
+
+      <div class="questions-box">
+        <h4>Prepared Questions for Doctor</h4>
+        <ul class="questions-list" id="questions-list">
+          <li>Discuss morning dizziness episodes and evaluate whether BP dosage needs adjusting.</li>
+          <li>Evaluate ankle swelling reported by family to check for fluid retention.</li>
+          <li>Review afternoon dosing schedule to help prevent missed doses during outings.</li>
+        </ul>
+      </div>
+    </section>
+
+    <div class="footer">
+      <span>CareCircle • Alexa+ Family Care Coordinator • MCP Spec 2025-11-25</span>
+    </div>
+  </div>
+
+  <script>
+    // JSON-RPC postMessage helper adhering strictly to MCP Apps spec 2026-01-26
+    let requestId = 1;
+    function sendMcpRequest(method, params) {
+      const id = requestId++;
+      const message = {
+        jsonrpc: "2.0",
+        id: id,
+        method: method,
+        params: params || {}
+      };
+      console.log("[MCP App] Sending to host:", message);
+      window.parent.postMessage(message, "*");
+      return id;
+    }
+
+    // 1. Initial MCP Apps Handshake per Spec 2026-01-26
+    function initMcpApp() {
+      sendMcpRequest("ui/initialize", {
+        protocolVersion: "2026-01-26",
+        appInfo: {
+          name: "carecircle-brief",
+          version: "1.0.0"
+        }
+      });
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initMcpApp);
+    } else {
+      initMcpApp();
+    }
+
+    // 2. Trigger pharmacy refill via host tool call (params.name, params.arguments)
+    function triggerRefill() {
+      const btn = document.getElementById("btn-refill");
+      btn.innerText = "Requesting Refill...";
+      btn.disabled = true;
+
+      // Send tools/call strictly per MCP Apps spec 2026-01-26
+      sendMcpRequest("tools/call", {
+        name: "request_refill",
+        arguments: {
+          medicine: "BP tablet",
+          quantity: 60,
+          confirm: true
+        }
+      });
+
+      // Update UI optimistically / on response
+      setTimeout(() => {
+        btn.innerText = "Refill Ordered (Mock)";
+        btn.classList.add("ordered");
+        document.getElementById("refill-desc").innerText = "Order placed: 60 pills of Amlodipine (Ref: #MOCK-Refill). Delivery expected in 2 days.";
+      }, 600);
+    }
+
+    // 3. Listen for Handshake and Tool Result Notifications from Host
+    window.addEventListener("message", (event) => {
+      const msg = event.data;
+      if (!msg) return;
+      console.log("[MCP App] Received message from host:", msg);
+
+      // Handle ui/initialize response
+      if (msg.result && msg.result.protocolVersion) {
+        console.log("[MCP App] Handshake complete with host:", msg.result);
+        return;
+      }
+
+      // Handle MCP Apps 2026-01-26 tool result notification
+      if (msg.method === "ui/notifications/tool-result" || msg.method === "notifications/tool-result" || msg.method === "ui/toolResult") {
+        const payload = msg.params?.data || msg.params?.result || msg.params;
+        if (payload) updateCardData(payload);
+        return;
+      }
+
+      // Handle direct tool result in JSON-RPC response
+      if (msg.result && typeof msg.result === "object") {
+        const payload = msg.result.data || msg.result;
+        updateCardData(payload);
+        return;
+      }
+
+      // Backward compatibility with basic hosts
+      if (msg.type === "carecircle_data" || msg.data) {
+        updateCardData(msg.data || msg);
+      }
+    });
+
+    function updateCardData(payload) {
+      if (payload.adherence) {
+        document.getElementById("adherence-badge").innerText = payload.adherence.adherence_percentage + "% Adherence";
+        document.getElementById("doses-taken").innerText = payload.adherence.doses_taken;
+        document.getElementById("doses-missed").innerText = payload.adherence.doses_missed;
+      }
+      if (payload.appointment) {
+        document.getElementById("doctor-name").innerText = payload.appointment.doctor;
+        document.getElementById("doctor-specialty").innerText = payload.appointment.specialty + " • " + payload.appointment.starts_at.substring(0, 10);
+      }
+      if (payload.questions_to_ask && payload.questions_to_ask.length > 0) {
+        const qList = document.getElementById("questions-list");
+        qList.innerHTML = "";
+        payload.questions_to_ask.forEach(q => {
+          const li = document.createElement("li");
+          li.innerText = q;
+          qList.appendChild(li);
+        });
+      }
+      if (payload.symptoms && payload.symptoms.length > 0) {
+        const sList = document.getElementById("symptoms-list");
+        sList.innerHTML = "";
+        payload.symptoms.forEach(s => {
+          const div = document.createElement("div");
+          div.className = "tag symptom";
+          div.innerText = s.text + " (" + s.date + ")";
+          sList.appendChild(div);
+        });
+        document.getElementById("symptoms-count").innerText = payload.symptoms.length;
+      }
+    }
+  </script>
+</body>
+</html>

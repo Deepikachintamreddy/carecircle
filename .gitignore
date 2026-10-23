@@ -1,0 +1,22 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.class
+
+# Environment and secrets
+.env
+scripts/.tokens.json
+
+# SQLite runtime files
+*.db
+*.db-wal
+*.db-shm
+carecircle.db
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

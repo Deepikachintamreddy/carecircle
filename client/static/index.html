@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CareCircle — Simulated Alexa+ Voice Assistant</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --panel-bg: #111827;
+      --card-bg: rgba(17, 24, 39, 0.75);
+      --border: #1f2937;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --alexa-blue: #00caef;
+      --alexa-grad: linear-gradient(135deg, #00caef 0%, #0077ff 100%);
+      --accent-purple: #8b5cf6;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Top Navigation */
+    header {
+      background: rgba(17, 24, 39, 0.9);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .alexa-ring {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--alexa-grad);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 16px rgba(0, 202, 239, 0.5);
+      animation: pulse-ring 3s infinite alternate;
+    }
+
+    @keyframes pulse-ring {
+      0% { box-shadow: 0 0 10px rgba(0, 202, 239, 0.4); }
+      100% { box-shadow: 0 0 24px rgba(0, 202, 239, 0.8); }
+    }
+
+    .alexa-ring svg {
+      width: 20px;
+      height: 20px;
+      fill: white;
+    }
+
+    .brand-title h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .brand-title p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .speaker-selector {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #1f2937;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      border: 1px solid #374151;
+    }
+
+    .speaker-label {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    select#speaker-select {
+      background: transparent;
+      color: var(--text);
+      font-weight: 600;
+      font-size: 14px;
+      border: none;
+      outline: none;
+      cursor: pointer;
+    }
+
+    select#speaker-select option {
+      background: #111827;
+      color: var(--text);
+    }
+
+    /* Main Grid: Split Layout */
+    .main-layout {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 460px 1fr;
+      gap: 0;
+      height: calc(100vh - 65px);
+    }
+
+    /* Voice / Conversation Column */
+    .voice-col {
+      background: var(--panel-bg);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    /* Demo Quick Scenarios */
+    .scenarios-tray {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(15, 23, 42, 0.6);
+    }
+
+    .tray-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--alexa-blue);
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .scenario-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .scenario-btn {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #cbd5e1;
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .scenario-btn:hover {
+      background: #334155;
+      color: white;
+      border-color: var(--alexa-blue);
+    }
+
+    /* Transcript Box */
+    .transcript-box {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .bubble {
+      max-width: 85%;
+      padding: 12px 16px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.5;
+      position: relative;
+    }
+
+    .bubble.user {
+      align-self: flex-end;
+      background: #1d4ed8;
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+
+    .bubble.alexa {
+      align-self: flex-start;
+      background: #1f2937;
+      color: var(--text);
+      border: 1px solid #374151;
+      border-bottom-left-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .bubble-meta {
+      font-size: 11px;
+      opacity: 0.7;
+      margin-top: 4px;
+    }
+
+    .bubble.alexa .speaker-tag {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--alexa-blue);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Controls Bar */
+    .controls-bar {
+      padding: 16px 18px;
+      border-top: 1px solid var(--border);
+      background: #0f172a;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    input#utterance-input {
+      flex: 1;
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: var(--text);
+      font-size: 14px;
+      padding: 12px 16px;
+      border-radius: 9999px;
+      outline: none;
+      transition: border 0.2s;
+    }
+
+    input#utterance-input:focus {
+      border-color: var(--alexa-blue);
+      box-shadow: 0 0 0 2px rgba(0, 202, 239, 0.2);
+    }
+
+    .mic-btn {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      background: var(--alexa-grad);
+      border: none;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0, 202, 239, 0.3);
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+
+    .mic-btn:hover {
+      transform: scale(1.05);
+    }
+
+    .mic-btn.listening {
+      background: #ef4444;
+      animation: pulse-mic 1s infinite alternate;
+    }
+
+    @keyframes pulse-mic {
+      0% { box-shadow: 0 0 8px rgba(239, 68, 68, 0.5); }
+      100% { box-shadow: 0 0 24px rgba(239, 68, 68, 0.9); }
+    }
+
+    .mic-btn svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    .audio-status {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .audio-status.speaking {
+      color: var(--alexa-blue);
+    }
+
+    /* Card / MCP Apps Display Column */
+    .card-col {
+      background: #030712;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .card-topbar {
+      padding: 12px 20px;
+      background: rgba(17, 24, 39, 0.8);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .card-topbar .pill {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--alexa-blue);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .iframe-wrapper {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    iframe#mcp-app-frame {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: transparent;
+    }
+
+    @media (max-width: 900px) {
+      .main-layout {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      .voice-col { height: 60vh; }
+      .card-col { height: 75vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="alexa-ring">
+        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+      </div>
+      <div class="brand-title">
+        <h1>CareCircle • Alexa+</h1>
+        <p>Shared Family Care Coordinator (MCP Spec 2025-11-25)</p>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+      <div id="llm-badge" class="speaker-selector" style="font-size: 12px; color: #38bdf8; border-color: rgba(56, 189, 248, 0.3);">
+        <span style="opacity: 0.7;">Agent Engine:</span>
+        <span id="llm-name" style="font-weight: 600;">Detecting...</span>
+      </div>
+      <div class="speaker-selector">
+        <span class="speaker-label">Speaking as:</span>
+        <select id="speaker-select" onchange="onSpeakerChange()">
+          <option value="Amma" selected>Amma (Patient)</option>
+          <option value="Ravi">Ravi (Caregiver / Son)</option>
+          <option value="Priya">Priya (Caregiver / Daughter)</option>
+          <option value="Dr. Rao's Clinic">Dr. Rao's Clinic (Viewer)</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <div class="main-layout">
+    <!-- Left Column: Voice Conversation & Scenarios -->
+    <div class="voice-col">
+      <!-- 5-Step Demo Story Scenarios -->
+      <div class="scenarios-tray">
+        <div class="tray-title">Demo Story Scenarios (Click to Run):</div>
+        <div class="scenario-pills">
+          <button class="scenario-btn" onclick="runDemoStep(1)">1. Amma: "I took my BP tablet"</button>
+          <button class="scenario-btn" onclick="runDemoStep(2)">2. Ravi: "Did Amma take her medicines today?"</button>
+          <button class="scenario-btn" onclick="runDemoStep(3)">3. Priya: "Prepare visit brief for Dr. Rao"</button>
+          <button class="scenario-btn" onclick="runDemoStep(4)">4. "Her BP tablets are running low"</button>
+          <button class="scenario-btn" onclick="runDemoStep(5)">5. "Forget note about dizziness"</button>
+        </div>
+      </div>
+
+      <!-- Transcript Box -->
+      <div class="transcript-box" id="transcript">
+        <div class="bubble alexa">
+          <span class="speaker-tag">Alexa+</span>
+          <div>Good morning! I am CareCircle, your family care coordinator. Amma is currently selected. Speak or type your request below.</div>
+          <span class="bubble-meta">Connected via Streamable HTTP at /mcp</span>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls-bar">
+        <div class="input-row">
+          <button id="mic-btn" class="mic-btn" onclick="toggleMic()" title="Click to speak">
+            <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+          </button>
+          <input type="text" id="utterance-input" placeholder="Type or say something to Alexa..." onkeydown="if(event.key==='Enter') sendUtterance()" />
+          <button class="scenario-btn" style="padding: 12px 18px; font-weight: 600;" onclick="sendUtterance()">Send</button>
+        </div>
+        <div class="audio-status" id="audio-status">
+          <span>Voice recognition ready</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: MCP Apps UI Card (Sandbox Host) -->
+    <div class="card-col">
+      <div class="card-topbar">
+        <div>
+          <span>MCP Apps Host Container</span>
+          <span style="opacity: 0.5;"> • Resource: ui://carecircle/brief</span>
+        </div>
+        <span class="pill">Sandboxed Iframe</span>
+      </div>
+      <div class="iframe-wrapper">
+        <iframe id="mcp-app-frame" sandbox="allow-scripts allow-forms allow-same-origin" src="/api/brief-card"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let tokensMap = {};
+    let pendingConfirmation = null;
+    let recognition = null;
+    let isListening = false;
+    let lastCardData = null;
+
+    // Load demo tokens from backend
+    async function loadTokens() {
+      try {
+        const res = await fetch("/api/tokens");
+        const data = await res.json();
+        if (data.tokens) {
+          tokensMap = data.tokens;
+        }
+      } catch (e) {
+        console.error("Failed to load tokens:", e);
+      }
+    }
+    loadTokens();
+
+    async function loadProviderInfo() {
+      try {
+        const res = await fetch("/api/provider-info");
+        const data = await res.json();
+        const badgeEl = document.getElementById("llm-name");
+        if (badgeEl && data.provider_name) {
+          badgeEl.innerText = data.provider_name;
+        }
+      } catch (e) {
+        console.warn("Could not load provider info", e);
+      }
+    }
+    loadProviderInfo();
+
+    function onSpeakerChange() {
+      const speaker = document.getElementById("speaker-select").value;
+      addSystemMessage(`Switched speaker to ${speaker}. Bearer token updated.`);
+    }
+
+    function addSystemMessage(text) {
+      const container = document.getElementById("transcript");
+      const div = document.createElement("div");
+      div.className = "bubble alexa";
+      div.style.background = "#0f172a";
+      div.style.borderColor = "#38bdf8";
+      div.innerHTML = `<span class="speaker-tag">System</span><div>${text}</div>`;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function addUserMessage(speaker, text) {
+      const container = document.getElementById("transcript");
+      const div = document.createElement("div");
+      div.className = "bubble user";
+      div.innerHTML = `<div>${text}</div><div class="bubble-meta">${speaker}</div>`;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function addAlexaMessage(text, toolName) {
+      const container = document.getElementById("transcript");
+      const div = document.createElement("div");
+      div.className = "bubble alexa";
+      div.innerHTML = `
+        <span class="speaker-tag">Alexa+</span>
+        <div>${text}</div>
+        <div class="bubble-meta">${toolName ? "Tool executed: " + toolName : "Voice Assistant"}</div>
+      `;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+
+      // Speak response using browser speech synthesis
+      speakReply(text);
+    }
+
+    // Speech synthesis
+    function speakReply(text) {
+      if (!window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      const statusEl = document.getElementById("audio-status");
+      statusEl.classList.add("speaking");
+      statusEl.innerText = "Alexa is speaking...";
+
+      utterance.onend = () => {
+        statusEl.classList.remove("speaking");
+        statusEl.innerText = "Voice recognition ready";
+      };
+      window.speechSynthesis.speak(utterance);
+    }
+
+    // Send utterance to backend
+    async function sendUtterance(textOverride) {
+      const inputEl = document.getElementById("utterance-input");
+      const text = textOverride || inputEl.value.trim();
+      if (!text) return;
+
+      const speaker = document.getElementById("speaker-select").value;
+      addUserMessage(speaker, text);
+      if (!textOverride) inputEl.value = "";
+
+      const statusEl = document.getElementById("audio-status");
+      statusEl.innerText = "Connecting to MCP Server over Streamable HTTP...";
+
+      try {
+        const payload = {
+          message: text,
+          speaker: speaker,
+          token: tokensMap[speaker] || "",
+          confirmation_state: pendingConfirmation
+        };
+
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: json_payload = JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        pendingConfirmation = data.confirmation_pending || null;
+
+        addAlexaMessage(data.spoken_reply || "Done.", data.tool_called);
+
+        // Deliver card data to iframe via MCP Apps spec 2026-01-26 notification & legacy format
+        if (data.card_data) {
+          lastCardData = data.card_data;
+          const iframe = document.getElementById("mcp-app-frame");
+          if (iframe && iframe.contentWindow) {
+            // MCP Apps spec 2026-01-26 tool result notification
+            iframe.contentWindow.postMessage({
+              jsonrpc: "2.0",
+              method: "ui/notifications/tool-result",
+              params: {
+                tool: data.tool_called || "prepare_visit_brief",
+                data: data.card_data
+              }
+            }, "*");
+            // Backward compatibility
+            iframe.contentWindow.postMessage({
+              type: "carecircle_data",
+              data: data.card_data
+            }, "*");
+          }
+        }
+      } catch (err) {
+        console.error("Chat error:", err);
+        addAlexaMessage("Sorry, I had trouble reaching the CareCircle MCP server: " + err.message);
+      }
+    }
+
+    // Speech Recognition
+    function initSpeech() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        console.warn("Browser SpeechRecognition not supported. Use text input.");
+        return;
+      }
+      recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = "en-US";
+
+      recognition.onstart = () => {
+        isListening = true;
+        document.getElementById("mic-btn").classList.add("listening");
+        document.getElementById("audio-status").innerText = "Listening to your voice...";
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        document.getElementById("utterance-input").value = transcript;
+        sendUtterance(transcript);
+      };
+
+      recognition.onend = () => {
+        isListening = false;
+        document.getElementById("mic-btn").classList.remove("listening");
+        document.getElementById("audio-status").innerText = "Voice recognition ready";
+      };
+
+      recognition.onerror = (e) => {
+        console.error("Speech recognition error:", e);
+        isListening = false;
+        document.getElementById("mic-btn").classList.remove("listening");
+        document.getElementById("audio-status").innerText = "Voice input error: " + e.error;
+      };
+    }
+    initSpeech();
+
+    function toggleMic() {
+      if (!recognition) {
+        alert("Speech recognition not supported in this browser. Please type your message.");
+        return;
+      }
+      if (isListening) {
+        recognition.stop();
+      } else {
+        recognition.start();
+      }
+    }
+
+    // Listen for postMessage from the MCP Apps card (Handshake & Tool Calls per MCP Apps spec 2026-01-26)
+    window.addEventListener("message", async (event) => {
+      const msg = event.data;
+      if (!msg) return;
+
+      // 1. Handshake response to ui/initialize
+      if (msg.method === "ui/initialize") {
+        console.log("[Host] Handling ui/initialize handshake from MCP App", msg);
+        const iframe = document.getElementById("mcp-app-frame");
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: {
+              protocolVersion: "2026-01-26",
+              hostInfo: { name: "CareCircle Alexa+ Host", version: "1.0.0" }
+            }
+          }, "*");
+
+          // If we have cached card data, immediately push it to the card
+          if (lastCardData) {
+            iframe.contentWindow.postMessage({
+              jsonrpc: "2.0",
+              method: "ui/notifications/tool-result",
+              params: {
+                tool: "prepare_visit_brief",
+                data: lastCardData
+              }
+            }, "*");
+          }
+        }
+        return;
+      }
+
+      // 2. Handle tools/call from MCP App strictly per spec
+      if (msg.method === "tools/call") {
+        const params = msg.params || {};
+        const toolName = params.name || msg.name;
+        const toolArgs = params.arguments || msg.arguments || {};
+        console.log("[Host] Received tools/call from MCP Apps card:", toolName, toolArgs);
+
+        const speaker = document.getElementById("speaker-select").value;
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: `confirm ${toolName}`,
+            speaker: speaker,
+            token: tokensMap[speaker],
+            confirmation_state: {
+              pending: true,
+              action: toolName,
+              medicine: toolArgs.medicine || "BP tablet"
+            }
+          })
+        });
+        const data = await res.json();
+        addAlexaMessage(data.spoken_reply, toolName);
+
+        // Send JSON-RPC response back to iframe
+        const iframe = document.getElementById("mcp-app-frame");
+        if (iframe && iframe.contentWindow && msg.id) {
+          iframe.contentWindow.postMessage({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: {
+              content: [{ type: "text", text: data.spoken_reply }]
+            }
+          }, "*");
+        }
+      }
+    });
+
+    // Run 5-step demo scenario helper
+    async function runDemoStep(step) {
+      if (step === 1) {
+        document.getElementById("speaker-select").value = "Amma";
+        sendUtterance("I took my BP tablet.");
+      } else if (step === 2) {
+        document.getElementById("speaker-select").value = "Ravi";
+        sendUtterance("Did Amma take her medicines today?");
+      } else if (step === 3) {
+        document.getElementById("speaker-select").value = "Priya";
+        sendUtterance("Prepare me for Amma's cardiology visit on Monday.");
+      } else if (step === 4) {
+        document.getElementById("speaker-select").value = "Ravi";
+        sendUtterance("Her BP tablets are running low.");
+        setTimeout(() => {
+          if (pendingConfirmation) {
+            sendUtterance("Yes, please place the refill order.");
+          }
+        }, 1800);
+      } else if (step === 5) {
+        document.getElementById("speaker-select").value = "Ravi";
+        sendUtterance("Forget the note about her dizziness.");
+        setTimeout(() => {
+          if (pendingConfirmation) {
+            sendUtterance("Yes, confirm deletion.");
+          }
+        }, 1800);
+      }
+    }
+  </script>
+</body>
+</html>
