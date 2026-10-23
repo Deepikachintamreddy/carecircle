@@ -583,7 +583,7 @@ class SmartVoiceAgentProvider(LLMProvider):
             }
 
         # ── Demo Story Step 4: "Her BP tablets are running low" / Supply / Refill ──
-        if "running low" in u or "low" in u or "supply" in u or "pills left" in u or "stock" in u or "refill" in u:
+        if "running low" in u or "low" in u or "supply" in u or "how many" in u or "left" in u or "pills left" in u or "stock" in u or "refill" in u:
             if "order" in u or "place refill" in u or "request refill" in u:
                 tool_data, card_html = await call_mcp_tool(
                     speaker_token,
@@ -766,6 +766,8 @@ async def chat_endpoint(request: Request) -> JSONResponse:
         speaker_token=token,
         confirmation_state=confirmation_state,
     )
+    if not res.get("provider_used"):
+        res["provider_used"] = provider_name
     return JSONResponse(res)
 
 
